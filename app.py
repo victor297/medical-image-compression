@@ -1,9 +1,11 @@
 import streamlit as st
 from PIL import Image
-import io
 import os
 import random
 import numpy as np
+import io
+import zipfile
+import shutil
 
 # Function for JPEG compression using Pillow (PIL)
 def compress_image(image, compression_level):
@@ -23,6 +25,7 @@ def compress_image(image, compression_level):
     
     # Open and return the compressed image
     return Image.open(output_buffer), compressed_size, output_buffer
+
 # Simple Stem Cell Algorithm for actual optimization
 def stem_cell_algorithm(image, target_size, max_iterations=100, initial_compression_level=80):
     best_compression_level = initial_compression_level
@@ -60,15 +63,47 @@ def calculate_psnr(image1, image2):
     psnr = 20 * np.log10(max_pixel / np.sqrt(mse))
     return psnr
 
+# Process images from the input folder and save compressed images to the output folder
+def process_images(input_folder, output_folder, target_size, max_iterations=50, initial_compression_level=80):
+    # Create output folder if it doesn't exist
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    # Evaluation metrics for each image
+    evaluation_metrics = []
+
+    # Process each image in the input folder
+    for file in input_folder:
+        image = Image.open(file)
+
+        # Perform stem cell algorithm for optimization with the target size
+        best_compression_level, best_mse = stem_cell_algorithm(image, target_size, max_iterations, initial_compression_level)
+
+        # Perform compression using the optimized compression level
+        compressed_image, compressed_size, _ = compress_image(image, best_compression_level)
+
+        # Save the compressed image to the output folder
+        compressed_file_path = os.path.join(output_folder, file.name)
+        compressed_image.save(compressed_file_path, format='JPEG')
+
+        # Calculate evaluation metrics for each image and store in the list
+        psnr = calculate_psnr(image, compressed_image)
+        mse = calculate_mse(image, compressed_image)
+        evaluation_metrics.append((file.name, psnr, mse))
+
+    return evaluation_metrics
 
 # Streamlit web application
 def main():
     st.title("Medical Image Compression using Stem Cell Algorithm")
-    st.write("Upload a lung image, and we'll optimize the compression level for you!")
+    st.write("Upload a lung image or a folder of images, and we'll optimize the compression level for you!")
     st.write("Project by Lois juwonlo Ajani--19/47cs/01023 and 20D/47CS/01260--Olaniran Samuel Adedayo")
 
-    # File uploader
+    # File uploader for single image
     uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+
+    # File uploader for folder of images
+    input_folder = st.file_uploader("Upload a folder of images...", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
     if uploaded_file is not None:
         # Display the original image
@@ -110,6 +145,39 @@ def main():
         # Provide a download link for the compressed image
         st.download_button("Download Compressed Image", data=compressed_buffer, file_name="compressed_image.jpg")
         st.write("note optimization works perfectly on medical images only")
+
+    if input_folder is not None:
+        # Compress images in the uploaded folder and save to another folder
+        st.subheader("Compress Images in a Folder")
+        output_folder = st.text_input("Enter the path of the output folder:")
+        if st.button("Compress Images"):
+            try:
+                output_folder = os.path.normpath(output_folder)
+                target_size = 0.8 * 320 * 1024  # Target size of 80% of 320KB
+                evaluation_metrics = process_images(input_folder, output_folder, target_size)
+                st.success("Image compression completed!")
+
+                # Display evaluation metrics for each image
+                st.subheader("Evaluation Metrics for Compressed Images")
+                for filename, psnr, mse in evaluation_metrics:
+                    st.write(f"Image: {filename}, PSNR: {psnr:.2f} dB, MSE: {mse:.2f}")
+                
+                # Create a ZIP file containing all the compressed images
+                zip_file_path = os.path.join("./", "compressed_images.zip")
+                
+                with zipfile.ZipFile(zip_file_path, "w") as zip_file:
+                    for filename in os.listdir(output_folder):
+                        file_path = os.path.join(output_folder, filename)
+                        with open(file_path, "rb") as file:
+                            zip_file.writestr(os.path.basename(file_path), file.read())
+
+                # Provide a download link for the ZIP file
+                st.download_button("Download All Compressed Images", data=open(zip_file_path, "rb").read(), file_name="compressed_images.zip")
+                shutil.rmtree(output_folder)
+
+                
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     main()
